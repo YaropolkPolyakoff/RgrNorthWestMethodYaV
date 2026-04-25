@@ -1,0 +1,447 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import tkinter.font as tkFont
+
+class TransportationSolverGUI:
+
+    def __init__(self, root):
+        self.root = root
+        self.root.title('Транспортная задача - Метод северо-западного угла')
+        self.root.geometry('1200x800')
+
+        self.num_sources = 3
+        self.num_destinations = 4
+
+        self.supply_entries = []
+        self.demand_entries = []
+        self.cost_entries = []
+
+        self.create_widgets()
+
+    def create_widgets(self):
+        """Создать компоненты интерфейса"""
+
+        # Заголовок
+        title_frame = tk.Frame(self.root, bg='#2196F3')
+        title_frame.pack(fill=tk.X, pady=10)
+        title_label = tk.Label(
+            title_frame,
+            text='Решение транспортной задачи методом северо-западного угла',
+            font=('Arial', 14, 'bold'),
+            bg='#2196F3',
+            fg='white'
+        )
+        title_label.pack(pady=10)
+
+        # Вкладки
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Вкладка 1: Ввод данных
+        self.input_frame = tk.Frame(self.notebook)
+        self.notebook.add(self.input_frame, text='Ввод данных')
+
+        # Вкладка 2: Решение
+        self.solution_frame = tk.Frame(self.notebook)
+        self.notebook.add(self.solution_frame, text='Решение')
+        self.create_solution_tab()
+
+        # Создаем вкладку ввода
+        self.create_input_tab()
+
+        # Кнопки внизу
+        buttons_frame = tk.Frame(self.root)
+        buttons_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        solve_btn = tk.Button(
+            buttons_frame,
+            text='Решить задачу',
+            command=self.solve_problem,
+            bg='#4CAF50',
+            fg='white',
+            font=('Arial', 11, 'bold'),
+            height=2,
+            width=30
+        )
+        solve_btn.pack(side=tk.LEFT, padx=5)
+
+        quit_btn = tk.Button(
+            buttons_frame,
+            text='Выход',
+            command=self.root.quit,
+            bg='#f44336',
+            fg='white',
+            font=('Arial', 11, 'bold'),
+            height=2,
+            width=30
+        )
+        quit_btn.pack(side=tk.LEFT, padx=5)
+
+    def create_input_tab(self):
+        """Создать вкладку ввода - полностью пересоздаётся при изменении размера"""
+
+        # Очищаем предыдущее содержимое
+        for widget in self.input_frame.winfo_children():
+            widget.destroy()
+
+        dims_frame = tk.LabelFrame(
+            self.input_frame,
+            text='Размеры матрицы',
+            font=('Arial', 10, 'bold'),
+            padx=10,
+            pady=10
+        )
+        dims_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        tk.Label(dims_frame, text='Источники:', font=('Arial', 10)).pack(side=tk.LEFT, padx=5)
+        self.sources_var = tk.IntVar(value=self.num_sources)
+        sources_spinbox = tk.Spinbox(
+            dims_frame,
+            from_=1,
+            to=10,
+            textvariable=self.sources_var,
+            width=5,
+            font=('Arial', 10),
+            command=self.on_dimensions_change
+        )
+        sources_spinbox.pack(side=tk.LEFT, padx=5)
+
+        tk.Label(dims_frame, text='Пункты назначения:', font=('Arial', 10)).pack(side=tk.LEFT, padx=5)
+        self.destinations_var = tk.IntVar(value=self.num_destinations)
+        destinations_spinbox = tk.Spinbox(
+            dims_frame,
+            from_=1,
+            to=10,
+            textvariable=self.destinations_var,
+            width=5,
+            font=('Arial', 10),
+            command=self.on_dimensions_change
+        )
+        destinations_spinbox.pack(side=tk.LEFT, padx=5)
+
+        content_frame = tk.Frame(self.input_frame)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        canvas = tk.Canvas(content_frame)
+        scrollbar = ttk.Scrollbar(content_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        supply_frame = tk.LabelFrame(
+            scrollable_frame,
+            text=f'Предложение (Sn) - {self.num_sources} источников',
+            font=('Arial', 10, 'bold'),
+            padx=10,
+            pady=10
+        )
+        supply_frame.pack(fill=tk.X, pady=5)
+
+        self.supply_entries = []
+        supply_inner = tk.Frame(supply_frame)
+        supply_inner.pack(fill=tk.X)
+
+        for i in range(self.num_sources):
+            label = tk.Label(supply_inner, text=f'S{i+1}:', font=('Arial', 9))
+            label.pack(side=tk.LEFT, padx=3)
+            entry = tk.Entry(supply_inner, width=8, font=('Arial', 9))
+            entry.insert(0, '100')
+            entry.pack(side=tk.LEFT, padx=3)
+            self.supply_entries.append(entry)
+
+        demand_frame = tk.LabelFrame(
+            scrollable_frame,
+            text=f'Спрос (Dn) - {self.num_destinations} пунктов назначения',
+            font=('Arial', 10, 'bold'),
+            padx=10,
+            pady=10
+        )
+        demand_frame.pack(fill=tk.X, pady=5)
+
+        self.demand_entries = []
+        demand_inner = tk.Frame(demand_frame)
+        demand_inner.pack(fill=tk.X)
+
+        for j in range(self.num_destinations):
+            label = tk.Label(demand_inner, text=f'D{j+1}:', font=('Arial', 9))
+            label.pack(side=tk.LEFT, padx=3)
+            entry = tk.Entry(demand_inner, width=8, font=('Arial', 9))
+            entry.insert(0, '75')
+            entry.pack(side=tk.LEFT, padx=3)
+            self.demand_entries.append(entry)
+
+        # Матрица затрат
+        cost_frame = tk.LabelFrame(
+            scrollable_frame,
+            text=f'Матрица затрат - {self.num_sources}x{self.num_destinations}',
+            font=('Arial', 10, 'bold'),
+            padx=10,
+            pady=10
+        )
+        cost_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        self.cost_entries = []
+        for i in range(self.num_sources):
+            row = []
+            row_frame = tk.Frame(cost_frame)
+            row_frame.pack(fill=tk.X, pady=3)
+
+            label = tk.Label(row_frame, text=f'S{i+1}:', font=('Arial', 9, 'bold'), width=4)
+            label.pack(side=tk.LEFT, padx=3)
+
+            for j in range(self.num_destinations):
+                entry = tk.Entry(row_frame, width=5, font=('Arial', 9))
+                entry.insert(0, str((i + j + 1) % 5 + 1))
+                entry.pack(side=tk.LEFT, padx=2)
+                row.append(entry)
+
+            self.cost_entries.append(row)
+
+    def create_solution_tab(self):
+        """Создать вкладку решения"""
+
+        info_frame = tk.LabelFrame(
+            self.solution_frame,
+            text='Информация о решении',
+            font=('Arial', 10, 'bold'),
+            padx=10,
+            pady=10
+        )
+        info_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        tk.Label(info_frame, text='Общая стоимость:', font=('Arial', 10)).pack(side=tk.LEFT, padx=5)
+        self.cost_label = tk.Label(
+            info_frame,
+            text='0',
+            font=('Arial', 14, 'bold'),
+            fg='#2196F3'
+        )
+        self.cost_label.pack(side=tk.LEFT, padx=5)
+
+        tk.Label(info_frame, text='  |  Статус:', font=('Arial', 10)).pack(side=tk.LEFT, padx=5)
+        self.status_label = tk.Label(
+            info_frame,
+            text='Не решено',
+            font=('Arial', 12, 'bold'),
+            fg='#f44336'
+        )
+        self.status_label.pack(side=tk.LEFT, padx=5)
+
+        alloc_frame = tk.LabelFrame(
+            self.solution_frame,
+            text='Матрица распределения ',
+            font=('Arial', 10, 'bold'),
+            padx=10,
+            pady=10
+        )
+        alloc_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        self.allocation_text = tk.Text(alloc_frame, height=10, width=100, font=('Courier', 9))
+        self.allocation_text.pack(fill=tk.BOTH, expand=True)
+
+        details_frame = tk.LabelFrame(
+            self.solution_frame,
+            text='Детали распределения',
+            font=('Arial', 10, 'bold'),
+            padx=10,
+            pady=10
+        )
+        details_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        self.details_text = tk.Text(details_frame, height=8, width=100, font=('Courier', 9))
+        self.details_text.pack(fill=tk.BOTH, expand=True)
+
+    def on_dimensions_change(self):
+        """При изменении размера - пересоздаём все поля"""
+        new_sources = self.sources_var.get()
+        new_destinations = self.destinations_var.get()
+
+        if new_sources != self.num_sources or new_destinations != self.num_destinations:
+            self.num_sources = new_sources
+            self.num_destinations = new_destinations
+            self.create_input_tab()
+
+    def get_table_data(self):
+        """Получить данные из таблиц"""
+        try:
+            num_sources = self.sources_var.get()
+            num_destinations = self.destinations_var.get()
+
+            # Ошибка пустого предложения
+            supply = []
+            for i in range(num_sources):
+                if i < len(self.supply_entries):
+                    val = self.supply_entries[i].get().strip()
+                    if not val:
+                        messagebox.showerror('Ошибка', f'Поле предложения S{i+1} пусто!')
+                        return None, None, None
+                    supply.append(int(val))
+
+            # Ошибка пустого спроса
+            demand = []
+            for j in range(num_destinations):
+                if j < len(self.demand_entries):
+                    val = self.demand_entries[j].get().strip()
+                    if not val:
+                        messagebox.showerror('Ошибка', f'Поле спроса D{j+1} пусто!')
+                        return None, None, None
+                    demand.append(int(val))
+
+            # Ошибка пустой матрицы затрат
+            cost_matrix = []
+            for i in range(num_sources):
+                row = []
+                for j in range(num_destinations):
+                    if i < len(self.cost_entries) and j < len(self.cost_entries[i]):
+                        val = self.cost_entries[i][j].get().strip()
+                        if not val:
+                            messagebox.showerror('Ошибка', f'Поле Cost[{i+1}][{j+1}] пусто!')
+                            return None, None, None
+                        row.append(int(val))
+                if row:
+                    cost_matrix.append(row)
+
+            print(f"Предложение: {supply}")
+            print(f"Спрос: {demand}")
+            print(f"Матрица затрат: {cost_matrix}")
+
+            return supply, demand, cost_matrix
+        except (ValueError, IndexError) as e:
+            messagebox.showerror('Ошибка', f'Пожалуйста, введите только числовые значения!\nОшибка: {str(e)}')
+            return None, None, None
+
+    def northwest_corner_method(self, supply, demand, cost_matrix):
+        """Решить задачу методом северо-западного угла"""
+        print("Начало расчета...")
+
+        supply_copy = supply.copy()
+        demand_copy = demand.copy()
+
+        allocation = [[0] * len(demand) for _ in range(len(supply))]
+
+        # Проверка баланса
+        if sum(supply) != sum(demand):
+            print(f"Несбалансирована! Преложение: {sum(supply)}, Спрос: {sum(demand)}")
+            return allocation, 0, False
+
+        i = 0
+        j = 0
+
+        print(f"Начальные данные - Источники: {len(supply)}, Цели: {len(demand)}")
+
+        while i < len(supply) and j < len(demand):
+            allocation_amount = min(supply_copy[i], demand_copy[j])
+            allocation[i][j] = allocation_amount
+
+            print(f"Распределение: S{i+1} -> D{j+1}: {allocation_amount}")
+
+            supply_copy[i] -= allocation_amount
+            demand_copy[j] -= allocation_amount
+
+            if supply_copy[i] == 0:
+                i += 1
+            if demand_copy[j] == 0:
+                j += 1
+
+        # Вычислить общую стоимость
+        total_cost = 0
+        for i in range(len(supply)):
+            for j in range(len(demand)):
+                if allocation[i][j] > 0:
+                    total_cost += allocation[i][j] * cost_matrix[i][j]
+                    print(f"Стоимость: {allocation[i][j]} * {cost_matrix[i][j]} = {allocation[i][j] * cost_matrix[i][j]}")
+
+        print(f"Итоговая стоимость: {total_cost}")
+
+        return allocation, total_cost, True
+
+    def solve_problem(self):
+        """Решить задачу"""
+        print("\n=== НАЧАЛО РЕШЕНИЯ ===")
+
+        supply, demand, cost_matrix = self.get_table_data()
+
+        if supply is None:
+            print("Ошибка при получении данных!")
+            return
+
+        num_sources = len(supply)
+        num_destinations = len(demand)
+
+        allocation, total_cost, feasible = self.northwest_corner_method(
+            supply, demand, cost_matrix
+        )
+
+        if not feasible:
+            messagebox.showerror(
+                'Ошибка',
+                f'Задача несбалансирована!\n\nПредложение (Supply): {sum(supply)}\nСпрос (Demand): {sum(demand)}\n\nОни должны быть равны!'
+            )
+            self.status_label.config(text='❌ Несбалансирована', fg='#f44336')
+            return
+
+        # Очистить текстовые поля
+        self.allocation_text.config(state=tk.NORMAL)
+        self.allocation_text.delete(1.0, tk.END)
+
+        # Отобразить матрицу распределения
+        # Заголовок
+        header = '       ' + ''.join(f'D{j+1:<7}' for j in range(num_destinations))
+        self.allocation_text.insert(tk.END, header + '\n')
+        self.allocation_text.insert(tk.END, '-' * (len(header) + 10) + '\n')
+
+        for i in range(num_sources):
+            line = f'S{i+1:<4}  '
+            for j in range(num_destinations):
+                line += f'{allocation[i][j]:<7}'
+            self.allocation_text.insert(tk.END, line + '\n')
+
+        self.allocation_text.config(state=tk.DISABLED)
+
+        # Отобразить детали
+        self.details_text.config(state=tk.NORMAL)
+        self.details_text.delete(1.0, tk.END)
+
+        header = f'{"Источник":<12} {"Пункт":<12} {"Кол-во":<10} {"Стоим/ед":<12} {"Сумма":<10}\n'
+        self.details_text.insert(tk.END, header)
+        self.details_text.insert(tk.END, '-' * 56 + '\n')
+
+        for i in range(num_sources):
+            for j in range(num_destinations):
+                if allocation[i][j] > 0:
+                    unit_cost = cost_matrix[i][j]
+                    alloc_cost = allocation[i][j] * unit_cost
+                    line = f'S{i+1:<11} D{j+1:<11} {allocation[i][j]:<10} {unit_cost:<12} {alloc_cost:<10}\n'
+                    self.details_text.insert(tk.END, line)
+
+        self.details_text.config(state=tk.DISABLED)
+
+        # Обновить информацию
+        self.cost_label.config(text=str(total_cost))
+        self.status_label.config(text='✅ Решено успешно', fg='#4CAF50')
+
+        # Переключиться на вкладку решения
+        self.notebook.select(1)
+
+        messagebox.showinfo('✅ Успех', f'Задача решена!\n\nОбщая стоимость: {total_cost}')
+        print("=== РЕШЕНИЕ ЗАВЕРШЕНО ===\n")
+
+
+def main():
+    """Главная функция"""
+    root = tk.Tk()
+    app = TransportationSolverGUI(root)
+    root.mainloop()
+
+
+if __name__ == '__main__':
+    main()
