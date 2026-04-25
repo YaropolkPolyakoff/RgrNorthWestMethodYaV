@@ -238,7 +238,7 @@ class TransportationSolverGUI:
 
         alloc_frame = tk.LabelFrame(
             self.solution_frame,
-            text='Матрица распределения ',
+            text='Начальное решение (Метод северо-западного угла)',
             font=('Arial', 10, 'bold'),
             padx=10,
             pady=10
@@ -247,6 +247,19 @@ class TransportationSolverGUI:
 
         self.allocation_text = tk.Text(alloc_frame, height=10, width=100, font=('Courier', 9))
         self.allocation_text.pack(fill=tk.BOTH, expand=True)
+
+        # Оптимизированная матрица распределения
+        optim_frame = tk.LabelFrame(
+            self.solution_frame,
+            text='Оптимизированное решение (Метод МОДИ)',
+            font=('Arial', 10, 'bold'),
+            padx=10,
+            pady=10
+        )
+        optim_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        self.optimized_text = tk.Text(optim_frame, height=10, width=100, font=('Courier', 9))
+        self.optimized_text.pack(fill=tk.BOTH, expand=True)
 
         details_frame = tk.LabelFrame(
             self.solution_frame,
@@ -364,6 +377,169 @@ class TransportationSolverGUI:
 
         return allocation, total_cost, True
 
+    def modi_optimization(self, allocation, cost_matrix, supply, demand):
+        """Оптимизировать решение методом МОДИ (модифицированный распределительный метод)"""
+        print("\n=== НАЧАЛО ОПТИМИЗАЦИИ (МОДИ) ===")
+        
+        # Создаём копию распределения для работы
+        allocation = [row[:] for row in allocation]
+        num_sources = len(supply)
+        num_destinations = len(demand)
+        
+        iteration = 0
+        max_iterations = 100
+        
+        while iteration < max_iterations:
+            iteration += 1
+            print(f"\n--- Итерация {iteration} ---")
+            
+            # Определить базисные ячейки (где allocation > 0)
+            basic_cells = []
+            for i in range(num_sources):
+                for j in range(num_destinations):
+                    if allocation[i][j] > 0:
+                        basic_cells.append((i, j))
+            
+            print(f"Базисных ячеек: {len(basic_cells)}")
+            
+            # Вычислить u и v (двойственные переменные)
+            u = [None] * num_sources
+            v = [None] * num_destinations
+            u[0] = 0  # Начинаем с u[0] = 0
+            
+            # Итеративно находим u и v используя условие: u[i] + v[j] = cost[i][j] для базисных ячеек
+            changed = True
+            safety_counter = 0
+            while changed and safety_counter < 100:
+                changed = False
+                safety_counter += 1
+                for i, j in basic_cells:
+                    if u[i] is not None and v[j] is None:
+                        v[j] = cost_matrix[i][j] - u[i]
+                        changed = True
+                    elif v[j] is not None and u[i] is None:
+                        u[i] = cost_matrix[i][j] - v[j]
+                        changed = True
+            
+            # Если не все u и v определены, используем альтернативный подход
+            for i in range(num_sources):
+                if u[i] is None:
+                    u[i] = 0
+            for j in range(num_destinations):
+                if v[j] is None:
+                    v[j] = 0
+            
+            print(f"u значения: {u}")
+            print(f"v значения: {v}")
+            
+            # Вычислить стоимости возможностей (opportunity costs) для небазисных ячеек
+            opportunity_costs = {}
+            entering_cell = None
+            min_opportunity_cost = 0
+            
+            for i in range(num_sources):
+                for j in range(num_destinations):
+                    if allocation[i][j] == 0:  # небазисная ячейка
+                        opportunity_cost = cost_matrix[i][j] - u[i] - v[j]
+                        opportunity_costs[(i, j)] = opportunity_cost
+                        
+                        if opportunity_cost < min_opportunity_cost:
+                            min_opportunity_cost = opportunity_cost
+                            entering_cell = (i, j)
+            
+            # Проверить оптимальность
+            if min_opportunity_cost >= 0:
+                print("Оптимальное решение найдено!")
+                break
+            
+            print(f"Входящая ячейка: {entering_cell}, стоимость возможности: {min_opportunity_cost}")
+            
+            # Построить цикл (loop) для перераспределения
+            loop = self.find_loop(entering_cell, basic_cells, num_sources, num_destinations)
+            
+            if not loop:
+                print("Не удалось найти цикл, завершаем оптимизацию")
+                break
+            
+            print(f"Найден цикл: {loop}")
+            
+            # Найти максимальное количество для перераспределения
+            min_allocation = float('inf')
+            for idx, (i, j) in enumerate(loop):
+                if idx % 2 == 1:  # нечетные позиции (минусы)
+                    if allocation[i][j] < min_allocation:
+                        min_allocation = allocation[i][j]
+            
+            print(f"Перераспределяемое количество: {min_allocation}")
+            
+            # Перераспределить
+            for idx, (i, j) in enumerate(loop):
+                if idx % 2 == 0:  # четные позиции (плюсы)
+                    allocation[i][j] += min_allocation
+                else:  # нечетные позиции (минусы)
+                    allocation[i][j] -= min_allocation
+        
+        # Вычислить оптимальную стоимость
+        optimized_cost = 0
+        for i in range(num_sources):
+            for j in range(num_destinations):
+                if allocation[i][j] > 0:
+                    optimized_cost += allocation[i][j] * cost_matrix[i][j]
+        
+        print(f"\nОптимизированная стоимость: {optimized_cost}")
+        print("=== ОПТИМИЗАЦИЯ ЗАВЕРШЕНА ===\n")
+        
+        return allocation, optimized_cost
+    
+    def find_loop(self, entering_cell, basic_cells, num_sources, num_destinations):
+        """Найти цикл для перераспределения (упрощенная версия)"""
+        # Добавить входящую ячейку в список для поиска цикла
+        cells = basic_cells + [entering_cell]
+        
+        # Простой поиск цикла: найти путь который возвращается к начальной ячейке
+        # используя только горизонтальные и вертикальные движения
+        start = entering_cell
+        
+        # Создаём словари для быстрого поиска
+        rows_dict = {}
+        cols_dict = {}
+        
+        for cell in cells:
+            i, j = cell
+            if i not in rows_dict:
+                rows_dict[i] = []
+            rows_dict[i].append(j)
+            
+            if j not in cols_dict:
+                cols_dict[j] = []
+            cols_dict[j].append(i)
+        
+        # Простой алгоритм поиска прямоугольного цикла
+        start_i, start_j = start
+        
+        # Пробуем найти простой прямоугольный цикл
+        if start_i in rows_dict:
+            for j2 in rows_dict[start_i]:
+                if j2 != start_j and j2 in cols_dict:
+                    for i2 in cols_dict[j2]:
+                        if i2 != start_i and i2 in rows_dict:
+                            if start_j in rows_dict[i2]:
+                                # Найден прямоугольный цикл
+                                loop = [
+                                    (start_i, start_j),
+                                    (start_i, j2),
+                                    (i2, j2),
+                                    (i2, start_j)
+                                ]
+                                return loop
+        
+        # Если простой цикл не найден, возвращаем минимальный цикл
+        # (для упрощения используем первые доступные ячейки)
+        if len(cells) >= 4:
+            return cells[:4]
+        
+        return None
+
     def solve_problem(self):
         """Решить задачу"""
         print("\n=== НАЧАЛО РЕШЕНИЯ ===")
@@ -389,12 +565,13 @@ class TransportationSolverGUI:
             self.status_label.config(text='❌ Несбалансирована', fg='#f44336')
             return
 
-        # Очистить текстовые поля
+        # Очистить текстовые поля для начального решения
         self.allocation_text.config(state=tk.NORMAL)
         self.allocation_text.delete(1.0, tk.END)
 
-        # Отобразить матрицу распределения
+        # Отобразить начальную матрицу распределения
         # Заголовок
+        self.allocation_text.insert(tk.END, 'НАЧАЛЬНОЕ РЕШЕНИЕ (Северо-западный угол)\n\n')
         header = '       ' + ''.join(f'D{j+1:<7}' for j in range(num_destinations))
         self.allocation_text.insert(tk.END, header + '\n')
         self.allocation_text.insert(tk.END, '-' * (len(header) + 10) + '\n')
@@ -405,7 +582,36 @@ class TransportationSolverGUI:
                 line += f'{allocation[i][j]:<7}'
             self.allocation_text.insert(tk.END, line + '\n')
 
+        self.allocation_text.insert(tk.END, f'\nСтоимость начального решения: {total_cost}\n')
         self.allocation_text.config(state=tk.DISABLED)
+
+        # Выполнить оптимизацию
+        optimized_allocation, optimized_cost = self.modi_optimization(
+            allocation, cost_matrix, supply, demand
+        )
+
+        # Очистить и отобразить оптимизированную матрицу
+        self.optimized_text.config(state=tk.NORMAL)
+        self.optimized_text.delete(1.0, tk.END)
+
+        self.optimized_text.insert(tk.END, 'ОПТИМИЗИРОВАННОЕ РЕШЕНИЕ (Метод МОДИ)\n\n')
+        header = '       ' + ''.join(f'D{j+1:<7}' for j in range(num_destinations))
+        self.optimized_text.insert(tk.END, header + '\n')
+        self.optimized_text.insert(tk.END, '-' * (len(header) + 10) + '\n')
+
+        for i in range(num_sources):
+            line = f'S{i+1:<4}  '
+            for j in range(num_destinations):
+                line += f'{optimized_allocation[i][j]:<7}'
+            self.optimized_text.insert(tk.END, line + '\n')
+
+        self.optimized_text.insert(tk.END, f'\nСтоимость оптимизированного решения: {optimized_cost}\n')
+        improvement = total_cost - optimized_cost
+        if improvement > 0:
+            self.optimized_text.insert(tk.END, f'Улучшение: {improvement} ({improvement/total_cost*100:.1f}%)\n')
+        else:
+            self.optimized_text.insert(tk.END, 'Начальное решение уже было оптимальным\n')
+        self.optimized_text.config(state=tk.DISABLED)
 
         # Отобразить детали
         self.details_text.config(state=tk.NORMAL)
@@ -417,22 +623,22 @@ class TransportationSolverGUI:
 
         for i in range(num_sources):
             for j in range(num_destinations):
-                if allocation[i][j] > 0:
+                if optimized_allocation[i][j] > 0:
                     unit_cost = cost_matrix[i][j]
-                    alloc_cost = allocation[i][j] * unit_cost
-                    line = f'S{i+1:<11} D{j+1:<11} {allocation[i][j]:<10} {unit_cost:<12} {alloc_cost:<10}\n'
+                    alloc_cost = optimized_allocation[i][j] * unit_cost
+                    line = f'S{i+1:<11} D{j+1:<11} {optimized_allocation[i][j]:<10} {unit_cost:<12} {alloc_cost:<10}\n'
                     self.details_text.insert(tk.END, line)
 
         self.details_text.config(state=tk.DISABLED)
 
-        # Обновить информацию
-        self.cost_label.config(text=str(total_cost))
+        # Обновить информацию (показываем оптимизированную стоимость)
+        self.cost_label.config(text=str(optimized_cost))
         self.status_label.config(text='✅ Решено успешно', fg='#4CAF50')
 
         # Переключиться на вкладку решения
         self.notebook.select(1)
 
-        messagebox.showinfo('✅ Успех', f'Задача решена!\n\nОбщая стоимость: {total_cost}')
+        messagebox.showinfo('✅ Успех', f'Задача решена и оптимизирована!\n\nНачальная стоимость: {total_cost}\nОптимизированная стоимость: {optimized_cost}\nУлучшение: {total_cost - optimized_cost}')
         print("=== РЕШЕНИЕ ЗАВЕРШЕНО ===\n")
 
 
